@@ -36,11 +36,38 @@ describe("validarPedido", () => {
     expect(validarPedido({ ...valido, nomeCostas: "a".repeat(31) }).ok).toBe(false);
   });
 
+  it("rejeita whats com mais de 20 caracteres", () => {
+    const r = validarPedido({ ...valido, whats: "1".repeat(21) });
+    expect(r.ok).toBe(false);
+    expect(r.erro).toMatch(/whatsapp/i);
+  });
+
+  it("aceita nome com exatamente 80 caracteres", () => {
+    expect(validarPedido({ ...valido, nome: "a".repeat(80) }).ok).toBe(true);
+  });
+
+  it("aceita nome nas costas com exatamente 30 caracteres", () => {
+    expect(validarPedido({ ...valido, nomeCostas: "a".repeat(30) }).ok).toBe(true);
+  });
+
+  it("aceita whats com exatamente 20 caracteres", () => {
+    expect(validarPedido({ ...valido, whats: "1".repeat(20) }).ok).toBe(true);
+  });
+
   it("rejeita modelo fora da grade", () => {
     const r = validarPedido({ ...valido, modelo: "Boné" });
     expect(r.ok).toBe(false);
     expect(r.erro).toMatch(/modelo/i);
   });
+
+  it.each(["constructor", "toString", "hasOwnProperty", "valueOf", "__proto__"])(
+    "rejeita modelo herdado do protótipo (%s) sem lançar exceção",
+    (modelo) => {
+      const r = validarPedido({ ...valido, modelo });
+      expect(r.ok).toBe(false);
+      expect(r.erro).toBe("Modelo inválido.");
+    }
+  );
 
   it("rejeita tamanho que não existe para aquele modelo", () => {
     // Regata não tem XG, mas as camisetas têm.

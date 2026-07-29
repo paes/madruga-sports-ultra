@@ -35,10 +35,10 @@ export function validarPedido(corpo) {
     return { ok: false, erro: "WhatsApp inválido." };
   }
 
-  const tamanhos = GRADE[modelo];
-  if (!tamanhos) {
+  if (!Object.hasOwn(GRADE, modelo)) {
     return { ok: false, erro: "Modelo inválido." };
   }
+  const tamanhos = GRADE[modelo];
   if (!tamanhos.includes(tamanho)) {
     return { ok: false, erro: "Tamanho inválido para esse modelo." };
   }
