@@ -710,6 +710,10 @@
 
 <script>
 (function(){
+  // API em Cloudflare Workers. Trocar caso o Worker mude de nome/conta.
+  const API_URL = 'https://madruga-pedidos.understencil.workers.dev';
+  let adminToken = sessionStorage.getItem('madruga_admin_token') || null;
+
   const form = document.getElementById('orderForm');
   const submitBtn = document.getElementById('submitBtn');
   const formMsg = document.getElementById('formMsg');
@@ -817,39 +821,45 @@
   }
 
   async function loadOrders(){
+    const usandoAdmin = isAdminLoggedIn && adminToken;
+    const url = API_URL + (usandoAdmin ? '/admin/pedidos' : '/pedidos');
+    const opcoes = usandoAdmin
+      ? { headers: { 'Authorization': 'Bearer ' + adminToken } }
+      : {};
+
     try{
-      const listResult = await window.storage.list('orders:', true);
-      const keys = (listResult && listResult.keys) ? listResult.keys : [];
-      if(keys.length === 0){
-        cachedOrders = [];
-        renderOrders(cachedOrders);
-        if(isAdminLoggedIn) renderAdminTable(cachedOrders);
+      const resposta = await fetch(url, opcoes);
+
+      // Token expirado ou inválido: devolve o admin para a tela de login.
+      if(usandoAdmin && resposta.status === 401){
+        deslogarAdmin();
         return;
       }
-      const entries = await Promise.all(keys.map(async function(k){
-        try{
-          const res = await window.storage.get(k, true);
-          if(!res || !res.value) return null;
-          const parsed = JSON.parse(res.value);
-          parsed.key = k;
-          return parsed;
-        }catch(e){ return null; }
-      }));
-      const orders = entries.filter(Boolean).sort(function(a,b){
-        return new Date(b.ts) - new Date(a.ts);
-      });
+      if(!resposta.ok) throw new Error('Resposta ' + resposta.status);
+
+      const orders = await resposta.json();
       cachedOrders = orders;
       renderOrders(cachedOrders);
       if(isAdminLoggedIn) renderAdminTable(cachedOrders);
     }catch(e){
       console.error('Erro ao carregar pedidos', e);
+      // A página é antes de tudo uma vitrine: se a API cair, o resto
+      // continua legível em vez de quebrar.
+      if(cachedOrders.length === 0) renderOrders([]);
     }
   }
 
   // ---------- admin panel ----------
-  const ADMIN_USER = 'madruga';
-  const ADMIN_PASS = 'Ultra5*';
   let isAdminLoggedIn = false;
+
+  function deslogarAdmin(){
+    isAdminLoggedIn = false;
+    adminToken = null;
+    sessionStorage.removeItem('madruga_admin_token');
+    adminLoginView.style.display = 'block';
+    adminDashView.style.display = 'none';
+    adminErr.textContent = 'Sua sessão expirou. Entre de novo.';
+  }
 
   const adminOverlay = document.getElementById('adminOverlay');
   const adminLoginView = document.getElementById('adminLoginView');
@@ -881,23 +891,42 @@
   adminOpenBtn.addEventListener('click', openAdmin);
   adminBackLink.addEventListener('click', closeAdmin);
 
-  adminLoginForm.addEventListener('submit', function(e){
+  adminLoginForm.addEventListener('submit', async function(e){
     e.preventDefault();
+    adminErr.textContent = '';
     const user = document.getElementById('adminUser').value.trim();
     const pass = document.getElementById('adminPass').value;
-    if(user === ADMIN_USER && pass === ADMIN_PASS){
+
+    try{
+      const resposta = await fetch(API_URL + '/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: user, senha: pass })
+      });
+
+      if(!resposta.ok){
+        adminErr.textContent = 'Usuário ou senha incorretos.';
+        return;
+      }
+
+      const dados = await resposta.json();
+      adminToken = dados.token;
+      sessionStorage.setItem('madruga_admin_token', adminToken);
       isAdminLoggedIn = true;
-      adminErr.textContent = '';
       adminLoginForm.reset();
       openAdmin();
-    } else {
-      adminErr.textContent = 'Usuário ou senha incorretos.';
+    }catch(err){
+      console.error(err);
+      adminErr.textContent = 'Não foi possível entrar agora. Tente de novo.';
     }
   });
 
   adminLogoutBtn.addEventListener('click', function(){
     isAdminLoggedIn = false;
+    adminToken = null;
+    sessionStorage.removeItem('madruga_admin_token');
     closeAdmin();
+    loadOrders();
   });
 
   function renderAdminTable(orders){
@@ -922,23 +951,27 @@
         '<td>' + whatsLink + '</td>' +
         '<td class="ts">' + fmtTime(o.ts) + '</td>' +
         '<td>' + pagoBadge + '</td>' +
-        '<td><button type="button" class="pago-toggle-btn" data-key="' + escapeHtml(o.key) + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
+        '<td><button type="button" class="pago-toggle-btn" data-id="' + o.id + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
       '</tr>';
     }).join('');
 
     adminOrdersBody.querySelectorAll('.pago-toggle-btn').forEach(function(btn){
       btn.addEventListener('click', async function(){
-        const key = btn.dataset.key;
+        const id = btn.dataset.id;
         const wasPago = btn.dataset.pago === '1';
-        const order = cachedOrders.find(function(o){ return o.key === key; });
-        if(!order) return;
         btn.disabled = true;
         btn.textContent = 'Salvando...';
         try{
-          const updated = Object.assign({}, order, { pago: !wasPago });
-          delete updated.key;
-          const result = await window.storage.set(key, JSON.stringify(updated), true);
-          if(!result) throw new Error('Falha ao salvar');
+          const resposta = await fetch(API_URL + '/admin/pedidos/' + id, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + adminToken
+            },
+            body: JSON.stringify({ pago: !wasPago })
+          });
+          if(resposta.status === 401){ deslogarAdmin(); return; }
+          if(!resposta.ok) throw new Error('Resposta ' + resposta.status);
           await loadOrders();
         }catch(err){
           console.error(err);
@@ -961,8 +994,7 @@
       modelo: modeloSelect.value,
       tamanho: tamanhoSelect.value,
       nomeCostas: document.getElementById('nomeCostas').value.trim(),
-      whats: document.getElementById('whats').value.trim(),
-      ts: new Date().toISOString()
+      whats: document.getElementById('whats').value.trim()
     };
 
     if(!order.nome || !order.modelo || !order.tamanho || !order.nomeCostas){
@@ -973,26 +1005,32 @@
       return;
     }
 
-    const key = 'orders:' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
-
     try{
-      const result = await window.storage.set(key, JSON.stringify(order), true);
-      if(!result){
-        throw new Error('Falha ao salvar');
+      const resposta = await fetch(API_URL + '/pedidos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order)
+      });
+
+      if(!resposta.ok){
+        const dados = await resposta.json().catch(function(){ return {}; });
+        formMsg.textContent = dados.erro || 'Não foi possível enviar agora. Tente novamente.';
+        formMsg.className = 'form-msg err';
+        return;
       }
+
+      const criado = await resposta.json();
       formMsg.textContent = 'Pedido confirmado! Não esqueça de enviar o comprovante do Pix.';
       formMsg.className = 'form-msg ok';
       form.reset();
       tamanhoSelect.innerHTML = '<option value="" disabled selected>Escolha o modelo primeiro</option>';
       tamanhoSelect.disabled = true;
 
-      // Optimistic update: show it in the list immediately, don't wait on the backend list
-      cachedOrders = [order].concat(cachedOrders);
+      // Atualização otimista: mostra na lista na hora. A escrita no D1 já
+      // está consistente para a próxima leitura, então não é preciso
+      // recarregar várias vezes como antes.
+      cachedOrders = [criado].concat(cachedOrders);
       renderOrders(cachedOrders);
-
-      // Reconcile with the backend a couple times in case list() lags right after a write
-      setTimeout(loadOrders, 1200);
-      setTimeout(loadOrders, 4000);
     }catch(err){
       console.error(err);
       formMsg.textContent = 'Não foi possível enviar agora. Tente novamente.';
@@ -1004,7 +1042,9 @@
   });
 
   loadOrders();
-  setInterval(loadOrders, 5000);
+  // 30s em vez de 5s: cada aba aberta gera ~2.900 requisições/dia em vez de
+  // ~17.000, o que mantém folga confortável no limite gratuito do Worker.
+  setInterval(loadOrders, 30000);
 })();
 </script>
 
