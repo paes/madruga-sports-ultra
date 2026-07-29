@@ -11,4 +11,4 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "madruga_pedidos"
-database_id = "substituir-na-task-7"
+database_id = "42e325a4-c1e2-43e1-a0bd-7f46422d24d6"

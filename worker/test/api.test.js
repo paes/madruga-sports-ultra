@@ -4,7 +4,7 @@ import worker from "../src/index.js";
 import { aplicarSchema, limparBanco } from "./helpers.js";
 import { sha256Hex } from "../src/auth.js";
 
-const ORIGEM = "https://paes.github.io";
+const ORIGEM = "https://madruga-sports.pages.dev";
 
 async function chamar(caminho, opcoes = {}) {
   const request = new Request(`https://exemplo.com${caminho}`, {

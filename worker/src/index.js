@@ -3,7 +3,7 @@ import { validarPedido } from "./validacao.js";
 import { VALIDADE_MS, gerarToken, verificarLogin, verificarToken } from "./auth.js";
 import { dentroDoLimite, hashIp, limparAntigos, registrarEnvio } from "./rateLimit.js";
 
-const ORIGEM_PERMITIDA = "https://paes.github.io";
+const ORIGEM_PERMITIDA = "https://madruga-sports.pages.dev";
 
 function cors(origem) {
   const cabecalhos = {
