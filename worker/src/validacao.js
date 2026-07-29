@@ -3,6 +3,10 @@
 export const GRADE = {
   "Camiseta Fundo Preto": ["PP", "P", "M", "G", "GG", "XG"],
   "Camiseta Fundo Laranja": ["PP", "P", "M", "G", "GG", "XG"],
+  // Baby look (REF. R30) é outra modelagem, com grade propria: vai so ate GG,
+  // sem XG — igual a regata e diferente das camisetas unissex.
+  "Baby Look Fundo Preto": ["PP", "P", "M", "G", "GG"],
+  "Baby Look Fundo Laranja": ["PP", "P", "M", "G", "GG"],
   "Regata": ["PP", "P", "M", "G", "GG"],
   "Camiseta Infantil (Citrino)": ["2", "4", "6", "8", "10", "12", "14"],
 };

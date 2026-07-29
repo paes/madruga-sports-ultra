@@ -76,6 +76,17 @@ describe("validarPedido", () => {
     expect(r.erro).toMatch(/tamanho/i);
   });
 
+  it("aceita as duas artes da baby look", () => {
+    expect(validarPedido({ ...valido, modelo: "Baby Look Fundo Preto", tamanho: "M" }).ok).toBe(true);
+    expect(validarPedido({ ...valido, modelo: "Baby Look Fundo Laranja", tamanho: "GG" }).ok).toBe(true);
+  });
+
+  it("rejeita XG na baby look, que so vai ate GG", () => {
+    const r = validarPedido({ ...valido, modelo: "Baby Look Fundo Preto", tamanho: "XG" });
+    expect(r.ok).toBe(false);
+    expect(r.erro).toMatch(/tamanho/i);
+  });
+
   it("aceita XG para camiseta", () => {
     expect(validarPedido({ ...valido, modelo: "Camiseta Fundo Preto", tamanho: "XG" }).ok).toBe(true);
   });
