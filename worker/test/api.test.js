@@ -2,6 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import worker from "../src/index.js";
 import { aplicarSchema, limparBanco } from "./helpers.js";
+import { sha256Hex } from "../src/auth.js";
 
 const ORIGEM = "https://paes.github.io";
 
@@ -116,5 +117,119 @@ describe("POST /pedidos", () => {
     const lista = await (await chamar("/pedidos")).json();
     expect(lista).toHaveLength(2);
     expect(lista[0].nome).toBe("Segundo");
+  });
+});
+
+const SENHA_TESTE = "senha-de-teste-123";
+
+// O env dos testes não tem os secrets de produção; definimos aqui.
+beforeAll(async () => {
+  env.ADMIN_USER = "madruga";
+  env.ADMIN_PASS_HASH = await sha256Hex(SENHA_TESTE);
+  env.TOKEN_SECRET = "segredo-hmac-de-teste";
+  env.IP_SALT = "salt-de-teste";
+});
+
+async function logar() {
+  const resposta = await chamar("/admin/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuario: "madruga", senha: SENHA_TESTE }),
+  });
+  return (await resposta.json()).token;
+}
+
+describe("POST /admin/login", () => {
+  it("devolve token com credenciais corretas", async () => {
+    const resposta = await chamar("/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario: "madruga", senha: SENHA_TESTE }),
+    });
+    expect(resposta.status).toBe(200);
+    const corpo = await resposta.json();
+    expect(typeof corpo.token).toBe("string");
+    expect(corpo.expiraEm).toBeGreaterThan(Date.now());
+  });
+
+  it("devolve 401 com senha errada, sem dizer qual campo errou", async () => {
+    const resposta = await chamar("/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario: "madruga", senha: "errada" }),
+    });
+    expect(resposta.status).toBe(401);
+    expect((await resposta.json()).erro).toBe("Usuário ou senha incorretos.");
+  });
+});
+
+describe("GET /admin/pedidos", () => {
+  it("devolve 401 sem token", async () => {
+    expect((await chamar("/admin/pedidos")).status).toBe(401);
+  });
+
+  it("devolve 401 com token forjado", async () => {
+    const resposta = await chamar("/admin/pedidos", {
+      headers: { Authorization: "Bearer aaaa.bbbb" },
+    });
+    expect(resposta.status).toBe(401);
+  });
+
+  it("devolve whats para o admin autenticado", async () => {
+    await postPedido(PEDIDO);
+    const token = await logar();
+    const resposta = await chamar("/admin/pedidos", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(resposta.status).toBe(200);
+    const lista = await resposta.json();
+    expect(lista[0].whats).toBe("48991311234");
+  });
+});
+
+describe("PATCH /admin/pedidos/:id", () => {
+  it("devolve 401 sem token", async () => {
+    const resposta = await chamar("/admin/pedidos/1", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pago: true }),
+    });
+    expect(resposta.status).toBe(401);
+  });
+
+  it("marca como pago e o efeito aparece no GET seguinte", async () => {
+    const criado = await (await postPedido(PEDIDO)).json();
+    const token = await logar();
+    const resposta = await chamar(`/admin/pedidos/${criado.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pago: true }),
+    });
+    expect(resposta.status).toBe(200);
+    expect((await resposta.json()).pago).toBe(true);
+
+    const lista = await (await chamar("/pedidos")).json();
+    expect(lista[0].pago).toBe(true);
+  });
+
+  it("devolve 404 para id inexistente", async () => {
+    const token = await logar();
+    const resposta = await chamar("/admin/pedidos/99999", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pago: true }),
+    });
+    expect(resposta.status).toBe(404);
+  });
+
+  it("devolve 400 quando pago não é booleano", async () => {
+    const criado = await (await postPedido(PEDIDO)).json();
+    const token = await logar();
+    const resposta = await chamar(`/admin/pedidos/${criado.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pago: "sim" }),
+    });
+    expect(resposta.status).toBe(400);
   });
 });

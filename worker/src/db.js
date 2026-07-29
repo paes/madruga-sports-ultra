@@ -54,3 +54,17 @@ export async function criarPedido(db, pedido) {
     criado_em: criadoEm,
   });
 }
+
+export async function marcarPago(db, id, pago) {
+  const { meta } = await db
+    .prepare("UPDATE pedidos SET pago = ? WHERE id = ?")
+    .bind(pago ? 1 : 0, id)
+    .run();
+  if (meta.changes === 0) return null;
+
+  const linha = await db
+    .prepare(`SELECT ${CAMPOS_ADMIN} FROM pedidos WHERE id = ?`)
+    .bind(id)
+    .first();
+  return paraJson(linha);
+}

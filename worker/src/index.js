@@ -1,5 +1,6 @@
-import { listarPedidos, criarPedido } from "./db.js";
+import { listarPedidos, criarPedido, marcarPago } from "./db.js";
 import { validarPedido } from "./validacao.js";
+import { VALIDADE_MS, gerarToken, verificarLogin, verificarToken } from "./auth.js";
 
 const ORIGEM_PERMITIDA = "https://paes.github.io";
 
@@ -40,6 +41,49 @@ async function postPedido(request, env, origem) {
   return json(await criarPedido(env.DB, validacao.pedido), 201, origem);
 }
 
+async function postLogin(request, env, origem) {
+  let corpo;
+  try {
+    corpo = await request.json();
+  } catch {
+    return erro("Corpo inválido.", 400, origem);
+  }
+  if (!(await verificarLogin(env, corpo.usuario, corpo.senha))) {
+    return erro("Usuário ou senha incorretos.", 401, origem);
+  }
+  const token = await gerarToken(env.TOKEN_SECRET);
+  return json({ token, expiraEm: Date.now() + VALIDADE_MS }, 200, origem);
+}
+
+async function autenticado(request, env) {
+  const cabecalho = request.headers.get("Authorization") || "";
+  const token = cabecalho.startsWith("Bearer ") ? cabecalho.slice(7) : "";
+  return verificarToken(env.TOKEN_SECRET, token);
+}
+
+async function getAdminPedidos(request, env, origem) {
+  if (!(await autenticado(request, env))) return erro("Não autorizado.", 401, origem);
+  return json(await listarPedidos(env.DB, { incluirWhats: true }), 200, origem);
+}
+
+async function patchPedido(request, env, origem, id) {
+  if (!(await autenticado(request, env))) return erro("Não autorizado.", 401, origem);
+
+  let corpo;
+  try {
+    corpo = await request.json();
+  } catch {
+    return erro("Corpo inválido.", 400, origem);
+  }
+  if (typeof corpo.pago !== "boolean") {
+    return erro("Campo 'pago' deve ser true ou false.", 400, origem);
+  }
+
+  const pedido = await marcarPago(env.DB, id, corpo.pago);
+  if (!pedido) return erro("Pedido não encontrado.", 404, origem);
+  return json(pedido, 200, origem);
+}
+
 export default {
   async fetch(request, env) {
     const origem = request.headers.get("Origin");
@@ -55,6 +99,16 @@ export default {
       }
       if (rota === "/pedidos" && request.method === "POST") {
         return await postPedido(request, env, origem);
+      }
+      if (rota === "/admin/login" && request.method === "POST") {
+        return await postLogin(request, env, origem);
+      }
+      if (rota === "/admin/pedidos" && request.method === "GET") {
+        return await getAdminPedidos(request, env, origem);
+      }
+      const admin = rota.match(/^\/admin\/pedidos\/(\d+)$/);
+      if (admin && request.method === "PATCH") {
+        return await patchPedido(request, env, origem, Number(admin[1]));
       }
       return erro("Rota não encontrada.", 404, origem);
     } catch (e) {
