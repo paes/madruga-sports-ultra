@@ -64,15 +64,22 @@ describe("POST /pedidos", () => {
   });
 
   it("NUNCA devolve whats na resposta da criação", async () => {
-    const criado = await (await postPedido(PEDIDO)).json();
-    expect(criado.whats).toBeUndefined();
+    const resposta = await postPedido(PEDIDO);
+    const bruto = await resposta.text();
+    // JSON cru, não a propriedade desserializada: pega vazamento mesmo que o
+    // campo saia com outro nome.
+    expect(bruto).toContain("MADRUGA");
+    expect(bruto).not.toContain("whats");
+    expect(bruto).not.toContain("48991311234");
   });
 
   it("NUNCA expõe whats no GET público, mesmo com telefone preenchido", async () => {
     await postPedido(PEDIDO);
     const resposta = await chamar("/pedidos");
     const bruto = await resposta.text();
-    // Checa o JSON cru: nem o nome do campo, nem o número em si.
+    // A asserção positiva garante que a lista não está vazia: sem ela, uma
+    // quebra na criação faria as duas checagens abaixo passarem provando nada.
+    expect(bruto).toContain("MADRUGA");
     expect(bruto).not.toContain("whats");
     expect(bruto).not.toContain("48991311234");
   });
