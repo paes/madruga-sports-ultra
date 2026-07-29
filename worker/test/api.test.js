@@ -252,3 +252,35 @@ describe("PATCH /admin/pedidos/:id", () => {
     expect(resposta.status).toBe(400);
   });
 });
+
+describe("limite de envios", () => {
+  function postComIp(ip) {
+    return chamar("/pedidos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+      body: JSON.stringify(PEDIDO),
+    });
+  }
+
+  it("aceita 5 pedidos do mesmo IP e recusa o sexto", async () => {
+    for (let i = 0; i < 5; i++) {
+      expect((await postComIp("203.0.113.7")).status).toBe(201);
+    }
+    const sexto = await postComIp("203.0.113.7");
+    expect(sexto.status).toBe(429);
+    expect((await sexto.json()).erro).toMatch(/tente novamente/i);
+  });
+
+  it("não penaliza um IP diferente", async () => {
+    for (let i = 0; i < 5; i++) await postComIp("203.0.113.7");
+    expect((await postComIp("203.0.113.8")).status).toBe(201);
+  });
+
+  it("guarda o hash do IP, nunca o IP em si", async () => {
+    await postComIp("203.0.113.7");
+    const { results } = await env.DB.prepare("SELECT ip_hash FROM rate_limit").all();
+    expect(results).toHaveLength(1);
+    expect(results[0].ip_hash).not.toContain("203.0.113.7");
+    expect(results[0].ip_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

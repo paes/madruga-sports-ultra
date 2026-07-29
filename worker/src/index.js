@@ -1,6 +1,7 @@
 import { listarPedidos, criarPedido, marcarPago } from "./db.js";
 import { validarPedido } from "./validacao.js";
 import { VALIDADE_MS, gerarToken, verificarLogin, verificarToken } from "./auth.js";
+import { dentroDoLimite, hashIp, limparAntigos, registrarEnvio } from "./rateLimit.js";
 
 const ORIGEM_PERMITIDA = "https://paes.github.io";
 
@@ -38,7 +39,21 @@ async function postPedido(request, env, origem) {
   const validacao = validarPedido(corpo);
   if (!validacao.ok) return erro(validacao.erro, 400, origem);
 
-  return json(await criarPedido(env.DB, validacao.pedido), 201, origem);
+  const ip = request.headers.get("CF-Connecting-IP") || "desconhecido";
+  const ipHash = await hashIp(ip, env.IP_SALT);
+
+  await limparAntigos(env.DB);
+  if (!(await dentroDoLimite(env.DB, ipHash))) {
+    return erro(
+      "Muitos pedidos desse aparelho em pouco tempo. Tente novamente daqui a pouco.",
+      429,
+      origem
+    );
+  }
+
+  const pedido = await criarPedido(env.DB, validacao.pedido);
+  await registrarEnvio(env.DB, ipHash);
+  return json(pedido, 201, origem);
 }
 
 async function postLogin(request, env, origem) {
