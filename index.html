@@ -53,7 +53,18 @@
   nav{display:flex; gap:28px; font-size:13px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase;}
   nav a, nav button.nav-link{text-decoration:none; color:var(--fog); transition:color .2s; background:none; border:none; font:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; padding:0;}
   nav a:hover, nav button.nav-link:hover{color:var(--paper);}
-  @media(max-width:640px){ nav{display:none;} }
+  /* No celular o menu virava display:none, deixando a pagina (8000px de altura)
+     sem nenhuma navegacao — pra ver a lista de pedidos era preciso rolar tudo.
+     Vira uma faixa deslizante compacta em vez de sumir. */
+  @media(max-width:640px){
+    header{flex-wrap:wrap; gap:8px; padding:12px 4vw;}
+    nav{
+      order:3; width:100%; gap:18px; font-size:11px;
+      overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch;
+    }
+    nav::-webkit-scrollbar{display:none;}
+    .nav-link{white-space:nowrap; padding:2px 0;}
+  }
 
   /* ---------- hero ---------- */
   .hero{
@@ -138,6 +149,11 @@
   .size-wrap{
     display:grid; grid-template-columns:1.15fr 0.85fr; gap:32px; align-items:center;
   }
+  /* Item de grid tem min-width:auto por padrao e se recusa a encolher abaixo do
+     conteudo. Como .size-table tem min-width:520px, sem isto a coluna nunca
+     desce de 520px e a PAGINA INTEIRA rola de lado no celular — o overflow-x
+     do .size-table-scroll nao adianta, porque o proprio wrapper foi esticado. */
+  .size-wrap > *{min-width:0;}
   @media(max-width:900px){ .size-wrap{grid-template-columns:1fr;} }
   .size-table-scroll{overflow-x:auto; border:1px solid var(--line); border-radius:14px;}
   table.size-table{width:100%; border-collapse:collapse; min-width:520px; font-size:13.5px;}
@@ -156,6 +172,20 @@
   table.size-table tbody tr:last-child td, table.size-table tbody tr:last-child th{border-bottom:none;}
   table.size-table tbody tr:hover td{background:rgba(249,115,22,0.06);}
   .size-caption{font-size:12px; color:var(--fog); padding:10px 4px 0; text-align:right;}
+
+  @media(max-width:640px){
+    /* Alinhado a esquerda: justificado a direita, quebrado em duas linhas,
+       ficava estranho. */
+    .size-caption{text-align:left;}
+    /* A tabela de medidas rola dentro da propria caixa, mas nada indicava isso.
+       Sem a dica, a pessoa acha que Manga 1 e 2 simplesmente nao existem. */
+    .size-table-scroll::before{
+      content:'Arraste a tabela para o lado para ver todas as colunas →';
+      display:block; padding:9px 12px; font-size:11px; color:var(--fog);
+      background:var(--panel-2); border-bottom:1px solid var(--line);
+      position:sticky; left:0;
+    }
+  }
   .size-diagram{
     background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:24px;
     display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center;
@@ -185,6 +215,11 @@
   .order-wrap{
     display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:start;
   }
+  /* Terceiro grid com o mesmo problema (ver .size-wrap e .row2): sem isto o
+     painel do formulario nao desce da largura intrinseca do <select>, cujas
+     opcoes sao longas, e empurra a pagina para os lados. */
+  .order-wrap > *{min-width:0;}
+  .field input, .field select{min-width:0;}
   @media(max-width:900px){ .order-wrap{grid-template-columns:1fr;} }
   .form-panel{
     background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:28px;
@@ -197,6 +232,16 @@
   }
   .field input:focus, .field select:focus{outline:none; border-color:var(--ember);}
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  /* Mesmo motivo do .size-wrap: sem min-width:0 a coluna nao encolhe abaixo da
+     largura intrinseca do <select>, cujas opcoes sao longas. */
+  .row2 > *{min-width:0;}
+
+  /* Telas bem estreitas (iPhone SE e afins): o padding de 28px sozinho comia
+     56px dos ~305px uteis, e as duas colunas nao cabiam. */
+  @media(max-width:400px){
+    .form-panel, .pix-box{padding:20px 16px;}
+    .row2{grid-template-columns:1fr;}
+  }
   .submit-btn{
     width:100%; background:var(--ember); color:#1a0a02; border:none; padding:14px; border-radius:10px;
     font-weight:800; font-size:14px; text-transform:uppercase; letter-spacing:0.04em; cursor:pointer;
@@ -215,9 +260,14 @@
   .pix-box p{color:var(--fog); font-size:13.5px; line-height:1.6; margin:0 0 16px;}
   .pix-key{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
+    flex-wrap:wrap;
     background:var(--void); border:1px solid var(--line); border-radius:10px; padding:12px 14px;
     font-family:'JetBrains Mono'; font-size:13px; color:var(--gold);
   }
+  /* A chave e longa e nao pode ser cortada — é o que a pessoa vai copiar.
+     Ela quebra a linha e o botao desce junto em tela muito estreita. */
+  .pix-key #pixKey{min-width:0; word-break:break-all;}
+  .pix-key button{flex:none;}
   .pix-key button{
     background:none; border:1px solid var(--line); color:var(--paper); font-size:11px;
     padding:6px 10px; border-radius:7px; cursor:pointer; text-transform:uppercase; letter-spacing:0.04em;
@@ -244,7 +294,42 @@
   }
   .count-chip{font-family:'JetBrains Mono'; font-size:12px; color:var(--fog); background:var(--panel); border:1px solid var(--line); padding:5px 11px; border-radius:8px;}
 
-  .table-wrap{background:var(--panel); border:1px solid var(--line); border-radius:16px; overflow:hidden;}
+  /* overflow-x:auto, nunca hidden: com hidden as colunas que nao cabem sao
+     cortadas sem nenhuma forma de alcanca-las. */
+  .table-wrap{background:var(--panel); border:1px solid var(--line); border-radius:16px; overflow-x:auto;}
+
+  /* Em tela estreita a tabela de 6 colunas nao cabe de jeito nenhum, e rolagem
+     horizontal no celular passa despercebida. Cada pedido vira um cartao. */
+  @media(max-width:640px){
+    .table-wrap{overflow:visible;}
+    .table-wrap table, .table-wrap tbody, .table-wrap tr, .table-wrap td{display:block; width:100%;}
+    .table-wrap thead{display:none;}
+    .table-wrap tbody tr{padding:14px 16px; border-bottom:1px solid var(--line);}
+    .table-wrap tbody tr:last-child{border-bottom:none;}
+    .table-wrap tbody td{
+      padding:4px 0; border:none; display:flex; align-items:center;
+      justify-content:space-between; gap:14px; text-align:right;
+    }
+    .table-wrap tbody td::before{
+      content:attr(data-label); flex:none; text-align:left;
+      /* Fixa a fonte: senao o rotulo herda a monoespaçada de .badge-tam/.ts
+         e fica destoando dos outros. */
+      font-family:'Inter',sans-serif; font-weight:500;
+      font-size:10.5px; letter-spacing:0.07em; text-transform:uppercase; color:var(--fog);
+    }
+    /* O nome vira o titulo do cartao: sem rotulo e com destaque. */
+    .table-wrap tbody td:first-child{
+      display:block; text-align:left; font-weight:700; font-size:15.5px;
+      color:var(--paper); padding-bottom:8px;
+    }
+    .table-wrap tbody td:first-child::before{display:none;}
+    .table-wrap .empty-row td{display:block; text-align:center; padding:34px 16px;}
+    .table-wrap .empty-row td::before{display:none;}
+    /* Botao de marcar pago: largura toda e alvo de toque confortavel. */
+    .table-wrap tbody td.cel-acao{display:block; padding-top:12px;}
+    .table-wrap tbody td.cel-acao::before{display:none;}
+    .table-wrap tbody td.cel-acao .pago-toggle-btn{width:100%; padding:12px; font-size:13.5px;}
+  }
   table{width:100%; border-collapse:collapse; font-size:13.5px;}
   thead th{
     text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--fog);
@@ -857,13 +942,14 @@
       const pagoBadge = o.pago
         ? '<span class="pago-badge yes">Pago</span>'
         : '<span class="pago-badge no">Pendente</span>';
+      // Os data-label viram os rotulos do cartao no celular, via CSS.
       return '<tr>' +
-        '<td>' + escapeHtml(o.nome) + '</td>' +
-        '<td><span class="badge-modelo">' + escapeHtml(o.modelo) + '</span></td>' +
-        '<td class="badge-tam">' + escapeHtml(o.tamanho) + '</td>' +
-        '<td>' + escapeHtml(o.nomeCostas) + '</td>' +
-        '<td>' + pagoBadge + '</td>' +
-        '<td class="ts">' + fmtTime(o.ts) + '</td>' +
+        '<td data-label="Nome">' + escapeHtml(o.nome) + '</td>' +
+        '<td data-label="Modelo"><span class="badge-modelo">' + escapeHtml(o.modelo) + '</span></td>' +
+        '<td class="badge-tam" data-label="Tamanho">' + escapeHtml(o.tamanho) + '</td>' +
+        '<td data-label="Nas costas">' + escapeHtml(o.nomeCostas) + '</td>' +
+        '<td data-label="Pagamento">' + pagoBadge + '</td>' +
+        '<td class="ts" data-label="Recebido">' + fmtTime(o.ts) + '</td>' +
       '</tr>';
     }).join('');
   }
@@ -1022,14 +1108,14 @@
         ? '<a href="https://wa.me/' + escapeHtml(paraWhatsApp(o.whats)) + '" style="color:var(--ember);" target="_blank" rel="noopener">' + escapeHtml(o.whats) + '</a>'
         : '<span style="color:var(--fog);">—</span>';
       return '<tr>' +
-        '<td>' + escapeHtml(o.nome) + '</td>' +
-        '<td><span class="badge-modelo">' + escapeHtml(o.modelo) + '</span></td>' +
-        '<td class="badge-tam">' + escapeHtml(o.tamanho) + '</td>' +
-        '<td>' + escapeHtml(o.nomeCostas) + '</td>' +
-        '<td>' + whatsLink + '</td>' +
-        '<td class="ts">' + fmtTime(o.ts) + '</td>' +
-        '<td>' + pagoBadge + '</td>' +
-        '<td><button type="button" class="pago-toggle-btn" data-id="' + escapeHtml(String(o.id)) + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
+        '<td data-label="Nome">' + escapeHtml(o.nome) + '</td>' +
+        '<td data-label="Modelo"><span class="badge-modelo">' + escapeHtml(o.modelo) + '</span></td>' +
+        '<td class="badge-tam" data-label="Tamanho">' + escapeHtml(o.tamanho) + '</td>' +
+        '<td data-label="Nas costas">' + escapeHtml(o.nomeCostas) + '</td>' +
+        '<td data-label="WhatsApp">' + whatsLink + '</td>' +
+        '<td class="ts" data-label="Recebido">' + fmtTime(o.ts) + '</td>' +
+        '<td data-label="Pagamento">' + pagoBadge + '</td>' +
+        '<td class="cel-acao"><button type="button" class="pago-toggle-btn" data-id="' + escapeHtml(String(o.id)) + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
       '</tr>';
     }).join('');
 
