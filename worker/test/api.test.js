@@ -152,6 +152,15 @@ describe("POST /admin/login", () => {
     expect(corpo.expiraEm).toBeGreaterThan(Date.now());
   });
 
+  it("devolve 400 para corpo JSON literalmente null, sem virar 500", async () => {
+    const resposta = await chamar("/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "null",
+    });
+    expect(resposta.status).toBe(400);
+  });
+
   it("devolve 401 com senha errada, sem dizer qual campo errou", async () => {
     const resposta = await chamar("/admin/login", {
       method: "POST",
@@ -192,6 +201,16 @@ describe("PATCH /admin/pedidos/:id", () => {
     const resposta = await chamar("/admin/pedidos/1", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pago: true }),
+    });
+    expect(resposta.status).toBe(401);
+  });
+
+  it("devolve 401 com token forjado", async () => {
+    const criado = await (await postPedido(PEDIDO)).json();
+    const resposta = await chamar(`/admin/pedidos/${criado.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer aaaa.bbbb" },
       body: JSON.stringify({ pago: true }),
     });
     expect(resposta.status).toBe(401);

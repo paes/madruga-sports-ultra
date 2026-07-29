@@ -48,6 +48,11 @@ async function postLogin(request, env, origem) {
   } catch {
     return erro("Corpo inválido.", 400, origem);
   }
+  // `JSON.parse("null")` não lança, então o try acima não pega esse caso:
+  // sem esta guarda, um corpo `null` viraria TypeError e 500 numa rota aberta.
+  if (!corpo || typeof corpo !== "object") {
+    return erro("Corpo inválido.", 400, origem);
+  }
   if (!(await verificarLogin(env, corpo.usuario, corpo.senha))) {
     return erro("Usuário ou senha incorretos.", 401, origem);
   }
@@ -73,6 +78,9 @@ async function patchPedido(request, env, origem, id) {
   try {
     corpo = await request.json();
   } catch {
+    return erro("Corpo inválido.", 400, origem);
+  }
+  if (!corpo || typeof corpo !== "object") {
     return erro("Corpo inválido.", 400, origem);
   }
   if (typeof corpo.pago !== "boolean") {

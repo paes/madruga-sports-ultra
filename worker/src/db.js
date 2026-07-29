@@ -66,5 +66,8 @@ export async function marcarPago(db, id, pago) {
     .prepare(`SELECT ${CAMPOS_ADMIN} FROM pedidos WHERE id = ?`)
     .bind(id)
     .first();
+  // O UPDATE e o SELECT não são atômicos: se a linha sumir entre os dois,
+  // `first()` devolve null e paraJson estouraria. Trata como não encontrado.
+  if (!linha) return null;
   return paraJson(linha);
 }
