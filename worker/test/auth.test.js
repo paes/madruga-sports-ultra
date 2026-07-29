@@ -12,7 +12,7 @@ const SEGREDO = "segredo-de-teste";
 
 describe("sha256Hex", () => {
   it("gera hash hex de 64 caracteres", async () => {
-    const hash = await sha256Hex("Ultra5*");
+    const hash = await sha256Hex("senha-qualquer");
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
   });
 

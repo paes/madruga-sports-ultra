@@ -9,9 +9,11 @@ export async function sha256Hex(texto) {
     .join("");
 }
 
-// Comparação em tempo constante para o conteúdo. O retorno antecipado por
-// tamanho diferente é aceitável aqui: os hashes comparados têm sempre 64
-// caracteres, então o tamanho não carrega informação sobre a senha.
+// Comparação em tempo constante para o CONTEÚDO. O retorno antecipado por
+// tamanho diferente vaza o comprimento — é aceitável nos dois usos daqui
+// porque nenhum dos comprimentos é secreto: hashes têm sempre 64 caracteres,
+// e o nome de usuário do admin não é segredo. Não reaproveite esta função
+// para comparar algo cujo tamanho precise ficar oculto.
 export function comparaSegura(a, b) {
   if (typeof a !== "string" || typeof b !== "string") return false;
   if (a.length !== b.length) return false;
