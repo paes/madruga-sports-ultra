@@ -888,13 +888,32 @@
   // Fica abaixo dos const acima de propósito: referencia adminLoginView,
   // adminDashView e adminErr, então declarar antes deixaria um ReferenceError
   // esperando a primeira chamada síncrona.
+  // Apaga do DOM e da memória tudo que veio do endpoint de admin. Sem isto os
+  // telefones dos clientes continuariam legíveis na tabela depois do logout —
+  // justamente o cenário de celular emprestado que motivou usar sessionStorage.
+  // Só prefixa o 55 se o cliente já não tiver digitado o DDI. Antes o código
+  // prefixava sempre, então quem escrevia "+55 48 99131-1234" virava
+  // wa.me/555548991311234 — link morto, e o admin sem conseguir responder.
+  function paraWhatsApp(bruto){
+    const digitos = String(bruto).replace(/\D/g, '');
+    return digitos.indexOf('55') === 0 && digitos.length > 11 ? digitos : '55' + digitos;
+  }
+
+  function limparDadosDeAdmin(){
+    adminOrdersBody.innerHTML = '<tr class="empty-row"><td colspan="8">Sessão encerrada.</td></tr>';
+    adminCountChip.textContent = '0 pedidos';
+    cachedOrders = [];
+  }
+
   function deslogarAdmin(){
     isAdminLoggedIn = false;
     adminToken = null;
     limparToken();
+    limparDadosDeAdmin();
     adminLoginView.style.display = 'block';
     adminDashView.style.display = 'none';
     adminErr.textContent = 'Sua sessão expirou. Entre de novo.';
+    loadOrders();
   }
 
   function openAdmin(){
@@ -954,6 +973,7 @@
     isAdminLoggedIn = false;
     adminToken = null;
     limparToken();
+    limparDadosDeAdmin();
     closeAdmin();
     loadOrders();
   });
@@ -970,7 +990,7 @@
         : '<span class="pago-badge no">Pendente</span>';
       const toggleLabel = o.pago ? 'Marcar pendente' : 'Marcar pago';
       const whatsLink = o.whats
-        ? '<a href="https://wa.me/55' + escapeHtml(o.whats.replace(/\D/g,'')) + '" style="color:var(--ember);" target="_blank" rel="noopener">' + escapeHtml(o.whats) + '</a>'
+        ? '<a href="https://wa.me/' + escapeHtml(paraWhatsApp(o.whats)) + '" style="color:var(--ember);" target="_blank" rel="noopener">' + escapeHtml(o.whats) + '</a>'
         : '<span style="color:var(--fog);">—</span>';
       return '<tr>' +
         '<td>' + escapeHtml(o.nome) + '</td>' +
@@ -980,7 +1000,7 @@
         '<td>' + whatsLink + '</td>' +
         '<td class="ts">' + fmtTime(o.ts) + '</td>' +
         '<td>' + pagoBadge + '</td>' +
-        '<td><button type="button" class="pago-toggle-btn" data-id="' + o.id + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
+        '<td><button type="button" class="pago-toggle-btn" data-id="' + escapeHtml(String(o.id)) + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
       '</tr>';
     }).join('');
 
@@ -999,7 +1019,10 @@
             },
             body: JSON.stringify({ pago: !wasPago })
           });
-          if(resposta.status === 401){ deslogarAdmin(); return; }
+          if(resposta.status === 401){
+            deslogarAdmin();
+            return;
+          }
           if(!resposta.ok) throw new Error('Resposta ' + resposta.status);
           await loadOrders();
         }catch(err){
@@ -1043,7 +1066,11 @@
 
       if(!resposta.ok){
         const dados = await resposta.json().catch(function(){ return {}; });
-        formMsg.textContent = dados.erro || 'Não foi possível enviar agora. Tente novamente.';
+        // Erro 4xx é culpa do preenchimento e a mensagem do servidor ajuda
+        // ("Tamanho inválido...", "Muitos pedidos..."). Erro 5xx é problema
+        // nosso: "Erro interno." não diz nada útil pro cliente.
+        const mensagemUtil = resposta.status < 500 ? dados.erro : '';
+        formMsg.textContent = mensagemUtil || 'Não foi possível enviar agora. Tente novamente.';
         formMsg.className = 'form-msg err';
         return;
       }

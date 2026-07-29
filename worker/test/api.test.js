@@ -27,13 +27,42 @@ describe("GET /pedidos", () => {
     expect(await resposta.json()).toEqual([]);
   });
 
-  it("libera CORS para a origem do GitHub Pages", async () => {
+  it("libera CORS para a origem do site", async () => {
     const resposta = await chamar("/pedidos");
     expect(resposta.headers.get("Access-Control-Allow-Origin")).toBe(ORIGEM);
   });
 
   it("não libera CORS para outra origem", async () => {
     const resposta = await chamar("/pedidos", { headers: { Origin: "https://site-falso.com" } });
+    expect(resposta.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+});
+
+// Num navegador real TODA escrita passa por preflight antes: o POST manda
+// Content-Type e as rotas de admin mandam Authorization. Se esta resposta
+// regredir, o formulário e o painel morrem em produção com a suíte verde.
+describe("preflight OPTIONS", () => {
+  it("responde 204 liberando a origem do site", async () => {
+    const resposta = await chamar("/pedidos", { method: "OPTIONS" });
+    expect(resposta.status).toBe(204);
+    expect(resposta.headers.get("Access-Control-Allow-Origin")).toBe(ORIGEM);
+  });
+
+  it("permite os cabeçalhos e métodos que a página realmente usa", async () => {
+    const resposta = await chamar("/admin/pedidos/1", { method: "OPTIONS" });
+    const cabecalhos = resposta.headers.get("Access-Control-Allow-Headers");
+    const metodos = resposta.headers.get("Access-Control-Allow-Methods");
+    expect(cabecalhos).toContain("Authorization");
+    expect(cabecalhos).toContain("Content-Type");
+    expect(metodos).toContain("PATCH");
+    expect(metodos).toContain("POST");
+  });
+
+  it("não libera preflight para outra origem", async () => {
+    const resposta = await chamar("/pedidos", {
+      method: "OPTIONS",
+      headers: { Origin: "https://site-falso.com" },
+    });
     expect(resposta.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 });
@@ -169,6 +198,39 @@ describe("POST /admin/login", () => {
     });
     expect(resposta.status).toBe(401);
     expect((await resposta.json()).erro).toBe("Usuário ou senha incorretos.");
+  });
+});
+
+describe("limite de tentativas de login", () => {
+  function tentarLogin(senha, ip) {
+    return chamar("/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+      body: JSON.stringify({ usuario: "madruga", senha }),
+    });
+  }
+
+  it("bloqueia com 429 depois de 10 tentativas erradas", async () => {
+    for (let i = 0; i < 10; i++) {
+      expect((await tentarLogin("errada", "198.51.100.1")).status).toBe(401);
+    }
+    expect((await tentarLogin("errada", "198.51.100.1")).status).toBe(429);
+  });
+
+  it("acerto não consome cota: só a falha é registrada", async () => {
+    for (let i = 0; i < 20; i++) {
+      expect((await tentarLogin(SENHA_TESTE, "198.51.100.2")).status).toBe(200);
+    }
+  });
+
+  it("a cota de login não gasta a cota de pedidos do mesmo IP", async () => {
+    for (let i = 0; i < 10; i++) await tentarLogin("errada", "198.51.100.3");
+    const resposta = await chamar("/pedidos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "198.51.100.3" },
+      body: JSON.stringify(PEDIDO),
+    });
+    expect(resposta.status).toBe(201);
   });
 });
 

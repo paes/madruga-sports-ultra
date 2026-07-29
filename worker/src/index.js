@@ -1,7 +1,14 @@
 import { listarPedidos, criarPedido, marcarPago } from "./db.js";
 import { validarPedido } from "./validacao.js";
 import { VALIDADE_MS, gerarToken, verificarLogin, verificarToken } from "./auth.js";
-import { dentroDoLimite, hashIp, limparAntigos, registrarEnvio } from "./rateLimit.js";
+import {
+  LIMITE_LOGIN,
+  dentroDoLimite,
+  escopoLogin,
+  hashIp,
+  limparAntigos,
+  registrarEnvio,
+} from "./rateLimit.js";
 
 const ORIGEM_PERMITIDA = "https://madruga-sports.pages.dev";
 
@@ -20,13 +27,22 @@ function cors(origem) {
 export function json(dados, status, origem) {
   return new Response(JSON.stringify(dados), {
     status,
-    headers: { "Content-Type": "application/json", ...cors(origem) },
+    headers: {
+      "Content-Type": "application/json",
+      // Nada aqui deve ir para cache de disco: a listagem de admin carrega
+      // telefones de clientes, e a pública muda a cada pedido novo.
+      "Cache-Control": "no-store",
+      ...cors(origem),
+    },
   });
 }
 
 export function erro(mensagem, status, origem) {
   return json({ erro: mensagem }, status, origem);
 }
+
+const ipDaRequisicao = (request) =>
+  request.headers.get("CF-Connecting-IP") || "desconhecido";
 
 async function postPedido(request, env, origem) {
   let corpo;
@@ -39,8 +55,7 @@ async function postPedido(request, env, origem) {
   const validacao = validarPedido(corpo);
   if (!validacao.ok) return erro(validacao.erro, 400, origem);
 
-  const ip = request.headers.get("CF-Connecting-IP") || "desconhecido";
-  const ipHash = await hashIp(ip, env.IP_SALT);
+  const ipHash = await hashIp(ipDaRequisicao(request), env.IP_SALT);
 
   await limparAntigos(env.DB);
   if (!(await dentroDoLimite(env.DB, ipHash))) {
@@ -68,7 +83,19 @@ async function postLogin(request, env, origem) {
   if (!corpo || typeof corpo !== "object") {
     return erro("Corpo inválido.", 400, origem);
   }
+  // Limita tentativas erradas: a senha é hash SHA-256 sem sal por decisão
+  // registrada no README, cuja compensação cobre só ataque offline. Sem freio
+  // aqui, adivinhação online continuaria de graça — ainda mais com o usuário
+  // sendo público.
+  const chave = escopoLogin(await hashIp(ipDaRequisicao(request), env.IP_SALT));
+  await limparAntigos(env.DB);
+  if (!(await dentroDoLimite(env.DB, chave, Date.now(), LIMITE_LOGIN))) {
+    return erro("Muitas tentativas. Tente novamente daqui a pouco.", 429, origem);
+  }
+
   if (!(await verificarLogin(env, corpo.usuario, corpo.senha))) {
+    // Só a falha consome cota: quem acerta a senha nunca se autobloqueia.
+    await registrarEnvio(env.DB, chave);
     return erro("Usuário ou senha incorretos.", 401, origem);
   }
   const token = await gerarToken(env.TOKEN_SECRET);

@@ -29,6 +29,41 @@ Detalhes do desenho em [`docs/superpowers/specs/2026-07-24-armazenamento-pedidos
 
 ## Mexendo no projeto
 
+### Configuração inicial (só numa conta Cloudflare nova)
+
+Se você clonou este repo e vai subir tudo do zero. Pulando qualquer passo daqui,
+o Worker sobe mas todo pedido devolve 500 e o login nunca funciona — sem pista
+nenhuma do motivo.
+
+```bash
+cd worker
+npx wrangler login
+
+# 1. Banco. Copie o database_id da saída para o wrangler.toml.
+npx wrangler d1 create madruga_pedidos
+
+# 2. Tabelas.
+npx wrangler d1 execute madruga_pedidos --remote --file=./schema.sql
+
+# 3. Os quatro secrets. Sem qualquer um deles a API não funciona.
+printf 'madruga' | npx wrangler secret put ADMIN_USER
+openssl rand -hex 32 | tr -d '\n' | npx wrangler secret put TOKEN_SECRET
+openssl rand -hex 16 | tr -d '\n' | npx wrangler secret put IP_SALT
+
+# A senha do admin: o comando abaixo lê sem exibir e imprime só o hash.
+read -rs SENHA && printf %s "$SENHA" | sha256sum | cut -d' ' -f1 && unset SENHA
+npx wrangler secret put ADMIN_PASS_HASH   # cole o hash
+
+# 4. Publicar.
+npx wrangler deploy
+npx wrangler pages project create madruga-sports --production-branch main
+```
+
+**Importante:** a constante `ORIGEM_PERMITIDA` em `worker/src/index.js` precisa
+bater exatamente com a URL do site. Se o endereço do Pages for outro, mude lá e
+no `ORIGEM` de `worker/test/api.test.js`, senão o navegador bloqueia todas as
+chamadas por CORS e a página fica sem gravar nada.
+
 ### Publicar uma alteração na página
 
 Editou o `index.html`? Publique assim:
