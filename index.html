@@ -712,7 +712,26 @@
 (function(){
   // API em Cloudflare Workers. Trocar caso o Worker mude de nome/conta.
   const API_URL = 'https://madruga-pedidos.understencil.workers.dev';
-  let adminToken = sessionStorage.getItem('madruga_admin_token') || null;
+
+  // Em navegador com armazenamento bloqueado, só TOCAR em sessionStorage já
+  // lança SecurityError. Como isto roda antes de tudo, sem o try a página
+  // inteira morreria para um visitante que nem ia abrir o painel admin.
+  const CHAVE_TOKEN = 'madruga_admin_token';
+
+  function lerToken(){
+    try{ return sessionStorage.getItem(CHAVE_TOKEN); }catch(e){ return null; }
+  }
+  function gravarToken(valor){
+    try{ sessionStorage.setItem(CHAVE_TOKEN, valor); }catch(e){ /* segue sem persistir */ }
+  }
+  function limparToken(){
+    try{ sessionStorage.removeItem(CHAVE_TOKEN); }catch(e){ /* nada a fazer */ }
+  }
+
+  let adminToken = lerToken();
+  // Se o token sobreviveu a um F5, continua logado: a primeira chamada valida
+  // ele de verdade, e um 401 cai em deslogarAdmin.
+  let isAdminLoggedIn = !!adminToken;
 
   const form = document.getElementById('orderForm');
   const submitBtn = document.getElementById('submitBtn');
@@ -844,23 +863,17 @@
     }catch(e){
       console.error('Erro ao carregar pedidos', e);
       // A página é antes de tudo uma vitrine: se a API cair, o resto
-      // continua legível em vez de quebrar.
-      if(cachedOrders.length === 0) renderOrders([]);
+      // continua legível em vez de quebrar. Mas não dizemos "nenhum pedido
+      // ainda" — seria mentira durante uma queda, e convida pedido duplicado.
+      if(cachedOrders.length === 0){
+        ordersBody.innerHTML = '<tr class="empty-row"><td colspan="6">' +
+          'Não foi possível carregar a lista agora. Seu pedido pode ser enviado normalmente.' +
+          '</td></tr>';
+      }
     }
   }
 
   // ---------- admin panel ----------
-  let isAdminLoggedIn = false;
-
-  function deslogarAdmin(){
-    isAdminLoggedIn = false;
-    adminToken = null;
-    sessionStorage.removeItem('madruga_admin_token');
-    adminLoginView.style.display = 'block';
-    adminDashView.style.display = 'none';
-    adminErr.textContent = 'Sua sessão expirou. Entre de novo.';
-  }
-
   const adminOverlay = document.getElementById('adminOverlay');
   const adminLoginView = document.getElementById('adminLoginView');
   const adminDashView = document.getElementById('adminDashView');
@@ -871,6 +884,18 @@
   const adminLogoutBtn = document.getElementById('adminLogoutBtn');
   const adminBackLink = document.getElementById('adminBackLink');
   const adminOpenBtn = document.getElementById('adminOpenBtn');
+
+  // Fica abaixo dos const acima de propósito: referencia adminLoginView,
+  // adminDashView e adminErr, então declarar antes deixaria um ReferenceError
+  // esperando a primeira chamada síncrona.
+  function deslogarAdmin(){
+    isAdminLoggedIn = false;
+    adminToken = null;
+    limparToken();
+    adminLoginView.style.display = 'block';
+    adminDashView.style.display = 'none';
+    adminErr.textContent = 'Sua sessão expirou. Entre de novo.';
+  }
 
   function openAdmin(){
     adminOverlay.classList.add('active');
@@ -910,8 +935,12 @@
       }
 
       const dados = await resposta.json();
+      // Sem esta guarda, um 200 sem token deixaria isAdminLoggedIn=true com
+      // token undefined: a tela de admin abriria mostrando dados públicos,
+      // com todo WhatsApp em branco e nenhum erro visível.
+      if(!dados.token) throw new Error('Resposta de login sem token');
       adminToken = dados.token;
-      sessionStorage.setItem('madruga_admin_token', adminToken);
+      gravarToken(adminToken);
       isAdminLoggedIn = true;
       adminLoginForm.reset();
       openAdmin();
@@ -924,7 +953,7 @@
   adminLogoutBtn.addEventListener('click', function(){
     isAdminLoggedIn = false;
     adminToken = null;
-    sessionStorage.removeItem('madruga_admin_token');
+    limparToken();
     closeAdmin();
     loadOrders();
   });
