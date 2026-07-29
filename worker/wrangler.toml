@@ -1,0 +1,14 @@
+name = "madruga-pedidos"
+main = "src/index.js"
+# Data suportada pelo runtime da versão do wrangler fixada em package.json.
+# Este Worker só usa APIs estáveis (WebCrypto, Request/Response, D1), então
+# não há ganho em exigir uma data mais nova — e alinhar mantém a saída dos
+# testes limpa, sem aviso de fallback de runtime.
+compatibility_date = "2024-12-30"
+# Exigido por @cloudflare/vitest-pool-workers para rodar os testes.
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "madruga_pedidos"
+database_id = "42e325a4-c1e2-43e1-a0bd-7f46422d24d6"

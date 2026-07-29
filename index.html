@@ -710,6 +710,29 @@
 
 <script>
 (function(){
+  // API em Cloudflare Workers. Trocar caso o Worker mude de nome/conta.
+  const API_URL = 'https://madruga-pedidos.understencil.workers.dev';
+
+  // Em navegador com armazenamento bloqueado, só TOCAR em sessionStorage já
+  // lança SecurityError. Como isto roda antes de tudo, sem o try a página
+  // inteira morreria para um visitante que nem ia abrir o painel admin.
+  const CHAVE_TOKEN = 'madruga_admin_token';
+
+  function lerToken(){
+    try{ return sessionStorage.getItem(CHAVE_TOKEN); }catch(e){ return null; }
+  }
+  function gravarToken(valor){
+    try{ sessionStorage.setItem(CHAVE_TOKEN, valor); }catch(e){ /* segue sem persistir */ }
+  }
+  function limparToken(){
+    try{ sessionStorage.removeItem(CHAVE_TOKEN); }catch(e){ /* nada a fazer */ }
+  }
+
+  let adminToken = lerToken();
+  // Se o token sobreviveu a um F5, continua logado: a primeira chamada valida
+  // ele de verdade, e um 401 cai em deslogarAdmin.
+  let isAdminLoggedIn = !!adminToken;
+
   const form = document.getElementById('orderForm');
   const submitBtn = document.getElementById('submitBtn');
   const formMsg = document.getElementById('formMsg');
@@ -817,40 +840,40 @@
   }
 
   async function loadOrders(){
+    const usandoAdmin = isAdminLoggedIn && adminToken;
+    const url = API_URL + (usandoAdmin ? '/admin/pedidos' : '/pedidos');
+    const opcoes = usandoAdmin
+      ? { headers: { 'Authorization': 'Bearer ' + adminToken } }
+      : {};
+
     try{
-      const listResult = await window.storage.list('orders:', true);
-      const keys = (listResult && listResult.keys) ? listResult.keys : [];
-      if(keys.length === 0){
-        cachedOrders = [];
-        renderOrders(cachedOrders);
-        if(isAdminLoggedIn) renderAdminTable(cachedOrders);
+      const resposta = await fetch(url, opcoes);
+
+      // Token expirado ou inválido: devolve o admin para a tela de login.
+      if(usandoAdmin && resposta.status === 401){
+        deslogarAdmin();
         return;
       }
-      const entries = await Promise.all(keys.map(async function(k){
-        try{
-          const res = await window.storage.get(k, true);
-          if(!res || !res.value) return null;
-          const parsed = JSON.parse(res.value);
-          parsed.key = k;
-          return parsed;
-        }catch(e){ return null; }
-      }));
-      const orders = entries.filter(Boolean).sort(function(a,b){
-        return new Date(b.ts) - new Date(a.ts);
-      });
+      if(!resposta.ok) throw new Error('Resposta ' + resposta.status);
+
+      const orders = await resposta.json();
       cachedOrders = orders;
       renderOrders(cachedOrders);
       if(isAdminLoggedIn) renderAdminTable(cachedOrders);
     }catch(e){
       console.error('Erro ao carregar pedidos', e);
+      // A página é antes de tudo uma vitrine: se a API cair, o resto
+      // continua legível em vez de quebrar. Mas não dizemos "nenhum pedido
+      // ainda" — seria mentira durante uma queda, e convida pedido duplicado.
+      if(cachedOrders.length === 0){
+        ordersBody.innerHTML = '<tr class="empty-row"><td colspan="6">' +
+          'Não foi possível carregar a lista agora. Seu pedido pode ser enviado normalmente.' +
+          '</td></tr>';
+      }
     }
   }
 
   // ---------- admin panel ----------
-  const ADMIN_USER = 'madruga';
-  const ADMIN_PASS = 'Ultra5*';
-  let isAdminLoggedIn = false;
-
   const adminOverlay = document.getElementById('adminOverlay');
   const adminLoginView = document.getElementById('adminLoginView');
   const adminDashView = document.getElementById('adminDashView');
@@ -861,6 +884,37 @@
   const adminLogoutBtn = document.getElementById('adminLogoutBtn');
   const adminBackLink = document.getElementById('adminBackLink');
   const adminOpenBtn = document.getElementById('adminOpenBtn');
+
+  // Fica abaixo dos const acima de propósito: referencia adminLoginView,
+  // adminDashView e adminErr, então declarar antes deixaria um ReferenceError
+  // esperando a primeira chamada síncrona.
+  // Apaga do DOM e da memória tudo que veio do endpoint de admin. Sem isto os
+  // telefones dos clientes continuariam legíveis na tabela depois do logout —
+  // justamente o cenário de celular emprestado que motivou usar sessionStorage.
+  // Só prefixa o 55 se o cliente já não tiver digitado o DDI. Antes o código
+  // prefixava sempre, então quem escrevia "+55 48 99131-1234" virava
+  // wa.me/555548991311234 — link morto, e o admin sem conseguir responder.
+  function paraWhatsApp(bruto){
+    const digitos = String(bruto).replace(/\D/g, '');
+    return digitos.indexOf('55') === 0 && digitos.length > 11 ? digitos : '55' + digitos;
+  }
+
+  function limparDadosDeAdmin(){
+    adminOrdersBody.innerHTML = '<tr class="empty-row"><td colspan="8">Sessão encerrada.</td></tr>';
+    adminCountChip.textContent = '0 pedidos';
+    cachedOrders = [];
+  }
+
+  function deslogarAdmin(){
+    isAdminLoggedIn = false;
+    adminToken = null;
+    limparToken();
+    limparDadosDeAdmin();
+    adminLoginView.style.display = 'block';
+    adminDashView.style.display = 'none';
+    adminErr.textContent = 'Sua sessão expirou. Entre de novo.';
+    loadOrders();
+  }
 
   function openAdmin(){
     adminOverlay.classList.add('active');
@@ -881,23 +935,47 @@
   adminOpenBtn.addEventListener('click', openAdmin);
   adminBackLink.addEventListener('click', closeAdmin);
 
-  adminLoginForm.addEventListener('submit', function(e){
+  adminLoginForm.addEventListener('submit', async function(e){
     e.preventDefault();
+    adminErr.textContent = '';
     const user = document.getElementById('adminUser').value.trim();
     const pass = document.getElementById('adminPass').value;
-    if(user === ADMIN_USER && pass === ADMIN_PASS){
+
+    try{
+      const resposta = await fetch(API_URL + '/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: user, senha: pass })
+      });
+
+      if(!resposta.ok){
+        adminErr.textContent = 'Usuário ou senha incorretos.';
+        return;
+      }
+
+      const dados = await resposta.json();
+      // Sem esta guarda, um 200 sem token deixaria isAdminLoggedIn=true com
+      // token undefined: a tela de admin abriria mostrando dados públicos,
+      // com todo WhatsApp em branco e nenhum erro visível.
+      if(!dados.token) throw new Error('Resposta de login sem token');
+      adminToken = dados.token;
+      gravarToken(adminToken);
       isAdminLoggedIn = true;
-      adminErr.textContent = '';
       adminLoginForm.reset();
       openAdmin();
-    } else {
-      adminErr.textContent = 'Usuário ou senha incorretos.';
+    }catch(err){
+      console.error(err);
+      adminErr.textContent = 'Não foi possível entrar agora. Tente de novo.';
     }
   });
 
   adminLogoutBtn.addEventListener('click', function(){
     isAdminLoggedIn = false;
+    adminToken = null;
+    limparToken();
+    limparDadosDeAdmin();
     closeAdmin();
+    loadOrders();
   });
 
   function renderAdminTable(orders){
@@ -912,7 +990,7 @@
         : '<span class="pago-badge no">Pendente</span>';
       const toggleLabel = o.pago ? 'Marcar pendente' : 'Marcar pago';
       const whatsLink = o.whats
-        ? '<a href="https://wa.me/55' + escapeHtml(o.whats.replace(/\D/g,'')) + '" style="color:var(--ember);" target="_blank" rel="noopener">' + escapeHtml(o.whats) + '</a>'
+        ? '<a href="https://wa.me/' + escapeHtml(paraWhatsApp(o.whats)) + '" style="color:var(--ember);" target="_blank" rel="noopener">' + escapeHtml(o.whats) + '</a>'
         : '<span style="color:var(--fog);">—</span>';
       return '<tr>' +
         '<td>' + escapeHtml(o.nome) + '</td>' +
@@ -922,23 +1000,30 @@
         '<td>' + whatsLink + '</td>' +
         '<td class="ts">' + fmtTime(o.ts) + '</td>' +
         '<td>' + pagoBadge + '</td>' +
-        '<td><button type="button" class="pago-toggle-btn" data-key="' + escapeHtml(o.key) + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
+        '<td><button type="button" class="pago-toggle-btn" data-id="' + escapeHtml(String(o.id)) + '" data-pago="' + (o.pago ? '1' : '0') + '">' + toggleLabel + '</button></td>' +
       '</tr>';
     }).join('');
 
     adminOrdersBody.querySelectorAll('.pago-toggle-btn').forEach(function(btn){
       btn.addEventListener('click', async function(){
-        const key = btn.dataset.key;
+        const id = btn.dataset.id;
         const wasPago = btn.dataset.pago === '1';
-        const order = cachedOrders.find(function(o){ return o.key === key; });
-        if(!order) return;
         btn.disabled = true;
         btn.textContent = 'Salvando...';
         try{
-          const updated = Object.assign({}, order, { pago: !wasPago });
-          delete updated.key;
-          const result = await window.storage.set(key, JSON.stringify(updated), true);
-          if(!result) throw new Error('Falha ao salvar');
+          const resposta = await fetch(API_URL + '/admin/pedidos/' + id, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + adminToken
+            },
+            body: JSON.stringify({ pago: !wasPago })
+          });
+          if(resposta.status === 401){
+            deslogarAdmin();
+            return;
+          }
+          if(!resposta.ok) throw new Error('Resposta ' + resposta.status);
           await loadOrders();
         }catch(err){
           console.error(err);
@@ -961,8 +1046,7 @@
       modelo: modeloSelect.value,
       tamanho: tamanhoSelect.value,
       nomeCostas: document.getElementById('nomeCostas').value.trim(),
-      whats: document.getElementById('whats').value.trim(),
-      ts: new Date().toISOString()
+      whats: document.getElementById('whats').value.trim()
     };
 
     if(!order.nome || !order.modelo || !order.tamanho || !order.nomeCostas){
@@ -973,26 +1057,36 @@
       return;
     }
 
-    const key = 'orders:' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
-
     try{
-      const result = await window.storage.set(key, JSON.stringify(order), true);
-      if(!result){
-        throw new Error('Falha ao salvar');
+      const resposta = await fetch(API_URL + '/pedidos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order)
+      });
+
+      if(!resposta.ok){
+        const dados = await resposta.json().catch(function(){ return {}; });
+        // Erro 4xx é culpa do preenchimento e a mensagem do servidor ajuda
+        // ("Tamanho inválido...", "Muitos pedidos..."). Erro 5xx é problema
+        // nosso: "Erro interno." não diz nada útil pro cliente.
+        const mensagemUtil = resposta.status < 500 ? dados.erro : '';
+        formMsg.textContent = mensagemUtil || 'Não foi possível enviar agora. Tente novamente.';
+        formMsg.className = 'form-msg err';
+        return;
       }
+
+      const criado = await resposta.json();
       formMsg.textContent = 'Pedido confirmado! Não esqueça de enviar o comprovante do Pix.';
       formMsg.className = 'form-msg ok';
       form.reset();
       tamanhoSelect.innerHTML = '<option value="" disabled selected>Escolha o modelo primeiro</option>';
       tamanhoSelect.disabled = true;
 
-      // Optimistic update: show it in the list immediately, don't wait on the backend list
-      cachedOrders = [order].concat(cachedOrders);
+      // Atualização otimista: mostra na lista na hora. A escrita no D1 já
+      // está consistente para a próxima leitura, então não é preciso
+      // recarregar várias vezes como antes.
+      cachedOrders = [criado].concat(cachedOrders);
       renderOrders(cachedOrders);
-
-      // Reconcile with the backend a couple times in case list() lags right after a write
-      setTimeout(loadOrders, 1200);
-      setTimeout(loadOrders, 4000);
     }catch(err){
       console.error(err);
       formMsg.textContent = 'Não foi possível enviar agora. Tente novamente.';
@@ -1004,7 +1098,9 @@
   });
 
   loadOrders();
-  setInterval(loadOrders, 5000);
+  // 30s em vez de 5s: cada aba aberta gera ~2.900 requisições/dia em vez de
+  // ~17.000, o que mantém folga confortável no limite gratuito do Worker.
+  setInterval(loadOrders, 30000);
 })();
 </script>
 
