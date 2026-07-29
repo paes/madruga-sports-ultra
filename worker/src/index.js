@@ -1,4 +1,5 @@
-import { listarPedidos } from "./db.js";
+import { listarPedidos, criarPedido } from "./db.js";
+import { validarPedido } from "./validacao.js";
 
 const ORIGEM_PERMITIDA = "https://paes.github.io";
 
@@ -25,6 +26,20 @@ export function erro(mensagem, status, origem) {
   return json({ erro: mensagem }, status, origem);
 }
 
+async function postPedido(request, env, origem) {
+  let corpo;
+  try {
+    corpo = await request.json();
+  } catch {
+    return erro("Corpo inválido.", 400, origem);
+  }
+
+  const validacao = validarPedido(corpo);
+  if (!validacao.ok) return erro(validacao.erro, 400, origem);
+
+  return json(await criarPedido(env.DB, validacao.pedido), 201, origem);
+}
+
 export default {
   async fetch(request, env) {
     const origem = request.headers.get("Origin");
@@ -37,6 +52,9 @@ export default {
     try {
       if (rota === "/pedidos" && request.method === "GET") {
         return json(await listarPedidos(env.DB), 200, origem);
+      }
+      if (rota === "/pedidos" && request.method === "POST") {
+        return await postPedido(request, env, origem);
       }
       return erro("Rota não encontrada.", 404, origem);
     } catch (e) {

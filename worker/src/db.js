@@ -25,3 +25,32 @@ export async function listarPedidos(db, { incluirWhats = false } = {}) {
     .all();
   return results.map(paraJson);
 }
+
+export async function criarPedido(db, pedido) {
+  const criadoEm = new Date().toISOString();
+  const { meta } = await db
+    .prepare(
+      `INSERT INTO pedidos (nome, modelo, tamanho, nome_costas, whats, pago, criado_em)
+       VALUES (?, ?, ?, ?, ?, 0, ?)`
+    )
+    .bind(
+      pedido.nome,
+      pedido.modelo,
+      pedido.tamanho,
+      pedido.nomeCostas,
+      pedido.whats || null,
+      criadoEm
+    )
+    .run();
+
+  // Monta a resposta sem a chave `whats`, então paraJson não a inclui.
+  return paraJson({
+    id: meta.last_row_id,
+    nome: pedido.nome,
+    modelo: pedido.modelo,
+    tamanho: pedido.tamanho,
+    nome_costas: pedido.nomeCostas,
+    pago: 0,
+    criado_em: criadoEm,
+  });
+}
